@@ -343,7 +343,7 @@ def train_eval(config,
   trainloader = _train_loader()
   testloader = StateActionCollector(env_config, AGENT_CLASSES, num_players)
 
-  net = model.get_model(observation_size=get_observation_length(env_config),  # todo derive this from game_config
+  net = model.get_model(observation_size=get_observation_length(env_config),
                         num_actions=get_max_actions(env_config),
                         num_hidden_layers=num_hidden_layers,
                         layer_size=layer_size)
@@ -593,7 +593,7 @@ def maybe_create_and_populate_database(hanabi_config):
   print(f'database exists (now)')
   return db_path
 
-def dispatch_training(hanabi_config, db_path, using_num_states):
+def train_from_db(hanabi_config, db_path, using_num_states):
   for agentname, agentcls in AGENT_CLASSES.items():
     if USE_RAY:
       # dataset =
@@ -647,7 +647,7 @@ def dispatch_training(hanabi_config, db_path, using_num_states):
 
 def main(hanabi_config):
   db_path = maybe_create_and_populate_database(hanabi_config)
-  dispatch_training(hanabi_config, db_path, using_num_states=2000)
+  train_from_db(hanabi_config, db_path, using_num_states=2000)
 
 if __name__ == '__main__':
   players = 3
