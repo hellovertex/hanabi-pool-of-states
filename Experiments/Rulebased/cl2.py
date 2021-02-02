@@ -35,13 +35,6 @@ AGENT_CLASSES = {'InternalAgent': InternalAgent,
                  'OuterAgent': OuterAgent, 'IGGIAgent': IGGIAgent, 'FlawedAgent': FlawedAgent,
                  'PiersAgent': PiersAgent, 'VanDenBerghAgent': VanDenBerghAgent}
 
-# COLORS = ['R', 'Y', 'G', 'W', 'B']
-#
-# hand_size = 5
-# num_players = 3
-# num_colors = 5
-# num_ranks = 5
-# COLORS = ['R', 'Y', 'G', 'W', 'B']
 COLORS_INV = ['B', 'W', 'G', 'Y', 'R']
 RANKS_INV = [4, 3, 2, 1, 0]
 # color_offset = (2 * hand_size)

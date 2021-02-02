@@ -163,10 +163,7 @@ def get_card_playability(observation, player_offset=0):
         if visible['color'] == colors[plausible.color] and visible['rank'] == plausible.rank:
           num_in_deck -= 1
       total_possibilities += num_in_deck
-      if colors[plausible.color] == 'B':
-        print(plausible)
-        print(plausible_cards)
-        exit(1)
+
       if playable_card(plausible, observation['fireworks']):
         playable_possibilities += num_in_deck
     playability_array[hand_index] = playable_possibilities / total_possibilities

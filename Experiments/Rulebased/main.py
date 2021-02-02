@@ -4,7 +4,7 @@ import train_from_database as util
 players = 3
 env_config = {
             "colors":
-                3,
+                5,
             "ranks":
                 5,
             "players":
@@ -26,7 +26,9 @@ num_rows_to_add = int(1e3)
 
 if __name__ == '__main__':
     """ Create and Fill database """
-    writer = StateActionWriter(AGENT_CLASSES, env_config, 3)
+    writer = StateActionWriter(agent_classes=AGENT_CLASSES,
+                               hanabi_game_config=env_config,
+                               num_players=3)
     writer.collect_and_write_to_database(path_to_db, num_rows_to_add)
 
     """ Get torch dataset with 'size' many elements, randomly drawn from database  """

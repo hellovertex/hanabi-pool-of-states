@@ -1,22 +1,13 @@
 import pickle
 import time
-
 import rulebased_agent as ra
-from Experiments.Rulebased.cl2 import StateActionCollector
-from internal_agent import InternalAgent
-from outer_agent import OuterAgent
-from iggi_agent import IGGIAgent
-from flawed_agent import FlawedAgent
-from piers_agent import PiersAgent
-from van_den_bergh_agent import VanDenBerghAgent
+from Experiments.Rulebased.cl2 import StateActionCollector, AGENT_CLASSES
 from typing import NamedTuple
 import sqlite3
 from sklearn.metrics import normalized_mutual_info_score
 import traceback
 import numpy as np
-AGENT_CLASSES = {'InternalAgent': InternalAgent,
-                 'OuterAgent': OuterAgent, 'IGGIAgent': IGGIAgent, 'FlawedAgent': FlawedAgent,
-                 'PiersAgent': PiersAgent, 'VanDenBerghAgent': VanDenBerghAgent}
+
 
 import matplotlib.pyplot as plt
 class Agent(NamedTuple):
@@ -25,7 +16,6 @@ class Agent(NamedTuple):
 
 
 def get_states(num_states):
-  # todo return list or np.ndarray here
   start = time.time()
   statecollector = StateActionCollector(AGENT_CLASSES, 3)
   states = statecollector.collect(num_states_to_collect=num_states,
