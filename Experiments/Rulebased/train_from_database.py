@@ -21,7 +21,7 @@ from cl2 import StateActionCollector, AGENT_CLASSES, to_int
 import traceback
 import model
 
-DEBUG = True
+DEBUG = False
 USE_RAY = False
 if DEBUG:
   LOG_INTERVAL = 10
@@ -59,6 +59,43 @@ def stringify_env_config(cfg):
   l = str(cfg['max_life_tokens'])
   o = str(cfg['observation_type'])
   return f'p{p}_h{h}_c{c}_r{r}_i{i}_l{l}_o{o}'
+
+c_count = [3, 2, 2, 2, 1]
+
+def get_observation_length(cfg):
+  num_colors = cfg['colors']
+  num_ranks = cfg['ranks']
+  num_players = cfg['players']
+  max_deck_size = 0
+  for r in range(num_ranks):
+    max_deck_size += c_count[r] * num_colors
+  max_info_tokens = cfg['max_information_tokens']
+  max_life_tokens = cfg['max_life_tokens']
+  hand_size = 4 if players in [4, 5] else 5
+
+  bits_per_card = num_colors * num_ranks
+
+  hands_bit_length = (num_players - 1) * hand_size * bits_per_card + num_players
+
+  board_bit_length = max_deck_size - num_players * \
+                     hand_size + num_colors * num_ranks \
+                     + max_info_tokens + max_life_tokens
+
+  discard_pile_bit_length = max_deck_size
+
+  last_action_bit_length = num_players + 4 + num_players + \
+                           num_colors + num_ranks \
+                           + hand_size + hand_size + bits_per_card + 2
+
+  card_knowledge_bit_length = num_players * hand_size * \
+                              (bits_per_card + num_colors + num_ranks)
+
+  return hands_bit_length + board_bit_length + discard_pile_bit_length \
+                                  + last_action_bit_length + card_knowledge_bit_length
+
+def get_max_actions(cfg):
+  hand_size = 4 if cfg['players'] in [4, 5] else 5
+  return 2*hand_size + (cfg['colors'] + cfg['ranks']) * cfg['players']
 
 
 class PoolOfStatesFromDatabase:
@@ -248,7 +285,6 @@ class MapStylePoolOfStatesFromDatabase(torch.utils.data.Dataset, PoolOfStatesFro
                                       target_table=target_table
                                       )
 
-
 def eval_fn(env_config, net, eval_loader, criterion, target_agent, num_states):
   # load pickled observations and get vectorized and compute action and eval with that
   start = time()
@@ -286,7 +322,7 @@ def train_eval(config,
                max_train_steps=np.inf,
                use_ray=True,
                dataset=None,
-               pyhanabi_as_bytes=False):
+               pyhanabi_as_bytes=True):
   target_agent_cls = config['agent']
   lr = config['lr']
   num_hidden_layers = config['num_hidden_layers']
@@ -300,14 +336,15 @@ def train_eval(config,
 
   def _train_loader():
     """ Returns first n rows of database """
-    return MapStylePoolOfStatesFromDatabase(from_db_path=from_db_path, size=using_num_states).get_eagerly(
+    return MapStylePoolOfStatesFromDatabase(from_db_path=from_db_path,
+                                            size=using_num_states).get_eagerly(
       pyhanabi_as_bytes=True, batch_length=1, random_seed=42)
 
   trainloader = _train_loader()
   testloader = StateActionCollector(env_config, AGENT_CLASSES, num_players)
 
-  net = model.get_model(observation_size=956,  # todo derive this from game_config
-                        num_actions=30,
+  net = model.get_model(observation_size=get_observation_length(env_config),  # todo derive this from game_config
+                        num_actions=get_max_actions(env_config),
                         num_hidden_layers=num_hidden_layers,
                         layer_size=layer_size)
 
@@ -389,10 +426,11 @@ def train_eval(config,
         raise e
 
 
-def run_train_eval_with_ray(env_config, db_path, name, scheduler, search_space, metric, mode, log_interval, eval_interval,
+def run_train_eval_with_ray(env_config, using_num_states, db_path, name, scheduler, search_space, metric, mode, log_interval, eval_interval,
                             num_eval_states,
                             num_samples, max_train_steps):
   train_fn = tune.with_parameters(train_eval,
+                                  using_num_states=using_num_states,
                                   from_db_path=db_path,
                                   env_config=env_config,
                                   target_table='pool_of_state_dicts',
@@ -428,6 +466,7 @@ def run_train_eval_with_ray(env_config, db_path, name, scheduler, search_space, 
 
 def select_best_model(env_config,
                       db_path,
+                      using_num_states,
                       name,
                       agentcls,
                       metric,
@@ -456,6 +495,7 @@ def select_best_model(env_config,
                   'agent_config': {'players': env_config['players']}
                   }
   return run_train_eval_with_ray(env_config=env_config,
+                                 using_num_states=using_num_states,
                                  db_path=db_path,
                                  name=name,
                                  scheduler=scheduler,
@@ -541,8 +581,8 @@ def train_best_model(name, analysis, train_steps, from_db_path):
            )
 
 
-def main(hanabi_config):
-  # todo check if database exists for corresponding config, otherwise create it using 500k states
+def maybe_create_and_populate_database(hanabi_config):
+  # check if database exists for corresponding config, otherwise create it using 500k states
   db_path = f'./database_{stringify_env_config(hanabi_config)}.db'
   if not os.path.exists(db_path):
     # assuming database is not setup already, so create it and collect 500k states [takes a long time]
@@ -550,56 +590,64 @@ def main(hanabi_config):
                                hanabi_game_config=hanabi_config,
                                num_players=3)
     writer.collect_and_write_to_database(db_path, int(5e3))
+  print(f'database exists (now)')
+  return db_path
+
+def dispatch_training(hanabi_config, db_path, using_num_states):
+  for agentname, agentcls in AGENT_CLASSES.items():
+    if USE_RAY:
+      # dataset =
+      best_model_analysis = select_best_model(env_config=hanabi_config,
+                                              db_path=db_path,
+                                              using_num_states=using_num_states,
+                                              name=agentname,
+                                              agentcls=agentcls,
+                                              metric='acc',
+                                              mode='max',
+                                              grace_period=GRACE_PERIOD,
+                                              max_t=MAX_T,
+                                              num_samples=NUM_SAMPLES,
+                                              lr=tune.loguniform(1e-4, 5e-3),
+                                              layer_size=tune.grid_search([64, 128, 256]),
+                                              batch_size=BATCH_SIZE)  # USE DEFAULTS for metric etc
+      # todo maybe create two tune.Experiment instances for these
+      print(f'Result written to {best_model_analysis.get_best_trial("acc", "max").checkpoint.value}')
+      # train_best_model(name=agentname, analysis=best_model_analysis,
+      #                  train_steps=5e5,
+      #                  from_db_path=FROM_DB_PATH)
+      # final_model_dir = tune_best_model(experiment_name=agentname, analysis=best_model_analysis,
+      # with_pbt=True).best_checkpoint
+      print('exiting...')
+      # print(f'Trained model weights and checkpoints are stored in {final_model_dir}')
+    else:
+      pass
+      # # todo include num_players to sql query
+      num_players = hanabi_config['players']
+      # agentname = 'VanDenBerghAgent'
+      config = {'agent': FlawedAgent,
+                'lr': 2e-3,
+                'num_hidden_layers': 1,
+                'layer_size': 64,
+                'batch_size': 1,  # tune.choice([4, 8, 16, 32]),
+                'num_players': num_players,
+                'agent_config': {'players': num_players}
+                }
+      train_eval(config,
+                 env_config=hanabi_config,
+                 conn=None,
+                 checkpoint_dir=None,
+                 from_db_path=db_path,
+                 target_table='pool_of_state_dicts',
+                 log_interval=LOG_INTERVAL,
+                 eval_interval=EVAL_INTERVAL,
+                 num_eval_states=NUM_EVAL_STATES,
+                 max_train_steps=np.inf,
+                 use_ray=False)
   #
-  # for agentname, agentcls in AGENT_CLASSES.items():
-  #   if USE_RAY:
-  #     # dataset =
-  #     best_model_analysis = select_best_model(env_config=hanabi_config,
-  #                                             db_path=db_path,
-  #                                             name=agentname,
-  #                                             agentcls=agentcls,
-  #                                             metric='acc',
-  #                                             mode='max',
-  #                                             grace_period=GRACE_PERIOD,
-  #                                             max_t=MAX_T,
-  #                                             num_samples=NUM_SAMPLES,
-  #                                             lr=tune.loguniform(1e-4, 5e-3),
-  #                                             layer_size=tune.grid_search([64, 128, 256]),
-  #                                             batch_size=BATCH_SIZE)  # USE DEFAULTS for metric etc
-  #     # todo maybe create two tune.Experiment instances for these
-  #     print(f'Result written to {best_model_analysis.get_best_trial("acc", "max").checkpoint.value}')
-  #     # train_best_model(name=agentname, analysis=best_model_analysis,
-  #     #                  train_steps=5e5,
-  #     #                  from_db_path=FROM_DB_PATH)
-  #     # final_model_dir = tune_best_model(experiment_name=agentname, analysis=best_model_analysis,
-  #     # with_pbt=True).best_checkpoint
-  #     print('exiting...')
-  #     # print(f'Trained model weights and checkpoints are stored in {final_model_dir}')
-  #   else:
-  #     pass
-  #     # # todo include num_players to sql query
-  #     num_players = 3
-  #     # agentname = 'VanDenBerghAgent'
-  #     config = {'agent': FlawedAgent,
-  #               'lr': 2e-3,
-  #               'num_hidden_layers': 1,
-  #               'layer_size': 64,
-  #               'batch_size': BATCH_SIZE,  # tune.choice([4, 8, 16, 32]),
-  #               'num_players': num_players,
-  #               'agent_config': {'players': num_players}
-  #               }
-  #     train_eval(config,
-  #                env_config=hanabi_config,
-  #                conn=None,
-  #                checkpoint_dir=None,
-  #                from_db_path=db_path,
-  #                target_table='pool_of_state_dicts',
-  #                log_interval=LOG_INTERVAL,
-  #                eval_interval=EVAL_INTERVAL,
-  #                num_eval_states=NUM_EVAL_STATES,
-  #                max_train_steps=np.inf,
-  #                use_ray=False)
-  #
+
+def main(hanabi_config):
+  db_path = maybe_create_and_populate_database(hanabi_config)
+  dispatch_training(hanabi_config, db_path, using_num_states=2000)
 
 if __name__ == '__main__':
   players = 3
