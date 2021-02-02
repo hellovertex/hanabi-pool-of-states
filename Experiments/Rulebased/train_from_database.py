@@ -15,8 +15,8 @@ import enum
 import torch.optim as optim
 # project lvl imports
 import rulebased_agent as ra
-from Experiments.Rulebased.data import StateActionWriter
-from Experiments.Rulebased.flawed_agent import FlawedAgent
+from data import StateActionWriter
+from  flawed_agent import FlawedAgent
 from cl2 import StateActionCollector, AGENT_CLASSES, to_int
 import traceback
 import model
@@ -328,7 +328,7 @@ def train_eval(config,
   num_hidden_layers = config['num_hidden_layers']
   layer_size = config['layer_size']
   batch_size = config['batch_size']
-  num_players = env_config['num_players']
+  num_players = env_config['players']
   target_agent = target_agent_cls(config['agent_config'])
 
   if from_db_path is None:
