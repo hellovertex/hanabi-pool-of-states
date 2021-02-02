@@ -21,8 +21,8 @@ from cl2 import StateActionCollector, AGENT_CLASSES, to_int
 import traceback
 import model
 
-DEBUG = False
-USE_RAY = True
+DEBUG = True
+USE_RAY = False
 if DEBUG:
   LOG_INTERVAL = 10
   EVAL_INTERVAL = 20
