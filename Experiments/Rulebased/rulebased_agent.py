@@ -27,23 +27,25 @@ class RulebasedAgent():
     self.histogram = [0 for i in range(len(rules) + 1)]
 
   def get_move(self, observation):
-    try:
-      if observation['current_player_offset'] == 0:
-        for index, rule in enumerate(self.rules):
-          action = rule(observation)
-          if action is not None:
-            # print(rule)
-            self.histogram[index] += 1
-            self.totalCalls += 1
-            return action
-        self.histogram[-1] += 1
-        self.totalCalls += 1
-        return Ruleset.legal_random(observation, pick_random=False)
-    except Exception as e:
-      print(e)
-      traceback.print_exc()
-      print(observation)
-      exit(1)
+    #try:
+    if observation['current_player_offset'] == 0:
+      for index, rule in enumerate(self.rules):
+
+        action = rule(observation)
+
+        if action is not None:
+          # print(rule)
+          self.histogram[index] += 1
+          self.totalCalls += 1
+          return action
+      self.histogram[-1] += 1
+      self.totalCalls += 1
+      return Ruleset.legal_random(observation, pick_random=False)
+    # except Exception as e:
+    #   print(e)
+    #   traceback.print_exc()
+    #   print(observation)
+    #   exit(1)
     return None
 
   def print_histogram(self):

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Simple Agent."""
+import traceback
 
 from hanabi_learning_environment.rl_env import Agent
 import random
@@ -29,9 +30,11 @@ num_in_deck_by_rank = [3, 2, 2, 2, 1]  # Note: rank is zero-based
 # Note: depending on the object calling, card could either be
 # a dict eg {'color':'R','rank':0} or a HanabiCard instance with c.color() and c.rank() methods
 def playable_card(card, fireworks):
+  #print(f'card before = {card}')
   if isinstance(card, pyhanabi.HanabiCard):
     card = {'color': colors[card.color], 'rank': card.rank}
-
+  #print(f'card after = {card}')
+  #print(f'card={card}, fireworks={fireworks}')
   """A card is playable if it can be placed on the fireworks pile."""
   if card['color'] == None and card['rank'] != None:
     for color in colors:
@@ -44,8 +47,8 @@ def playable_card(card, fireworks):
   elif card['color'] == None or card['rank'] == None:
     return False
   else:
-    return card['rank'] == fireworks[card['color']]
 
+    return card['rank'] == fireworks[card['color']]
 
 def useless_card(card, fireworks, max_fireworks):
   if isinstance(card, pyhanabi.HanabiCard):
@@ -94,8 +97,8 @@ def get_plausible_cards(observation, player_offset, hand_index):
     pass
   # print(hidden_card)
   plausible_cards = []
-  for color_index in range(5):
-    for rank_index in range(5):
+  for color_index in range(observation['pyhanabi'].parent_game.num_colors):
+    for rank_index in range(observation['pyhanabi'].parent_game.num_ranks):
       # print(hidden_card.color_plausible(color_index))
       # print(hidden_card.rank_plausible(rank_index))
       if (hidden_card.color_plausible(color_index) and hidden_card.rank_plausible(rank_index)):
@@ -160,6 +163,10 @@ def get_card_playability(observation, player_offset=0):
         if visible['color'] == colors[plausible.color] and visible['rank'] == plausible.rank:
           num_in_deck -= 1
       total_possibilities += num_in_deck
+      if colors[plausible.color] == 'B':
+        print(plausible)
+        print(plausible_cards)
+        exit(1)
       if playable_card(plausible, observation['fireworks']):
         playable_possibilities += num_in_deck
     playability_array[hand_index] = playable_possibilities / total_possibilities

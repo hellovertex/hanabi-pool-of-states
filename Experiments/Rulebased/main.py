@@ -1,16 +1,17 @@
 from data import StateActionWriter
 from cl2 import AGENT_CLASSES
 import train_from_database as util
-
+players = 3
 env_config = {
             "colors":
-                5,
+                3,
             "ranks":
                 5,
             "players":
-                4,
+                players,
             "hand_size":
-                4,
+                4 if players in [4, 5] else 5,
+            # hand size is derived from number of players
             "max_information_tokens":
                 8,
             "max_life_tokens":
