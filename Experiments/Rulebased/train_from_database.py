@@ -22,7 +22,7 @@ import traceback
 import model
 
 DEBUG = False
-USE_RAY = False
+USE_RAY = True
 if DEBUG:
   LOG_INTERVAL = 10
   EVAL_INTERVAL = 20
@@ -328,19 +328,14 @@ def train_eval(config,
   num_hidden_layers = config['num_hidden_layers']
   layer_size = config['layer_size']
   batch_size = config['batch_size']
-  num_players = config['num_players']
+  num_players = env_config['num_players']
   target_agent = target_agent_cls(config['agent_config'])
 
   if from_db_path is None:
     raise NotImplementedError("Todo: Implement the database setup before training on new machines. ")
 
-  def _train_loader():
-    """ Returns first n rows of database """
-    return MapStylePoolOfStatesFromDatabase(from_db_path=from_db_path,
-                                            size=using_num_states).get_eagerly(
+  trainloader = MapStylePoolOfStatesFromDatabase(from_db_path=from_db_path, size=using_num_states).get_eagerly(
       pyhanabi_as_bytes=True, batch_length=1, random_seed=42)
-
-  trainloader = _train_loader()
   testloader = StateActionCollector(env_config, AGENT_CLASSES, num_players)
 
   net = model.get_model(observation_size=get_observation_length(env_config),
@@ -482,7 +477,6 @@ def select_best_model(env_config,
                             grace_period=grace_period,
                             # mode=mode,
                             max_t=max_t)  # current implementation raises stop iteration when db is finished
-  # todo if necessary, build the search space from call params
   search_space = {'agent': agentcls,  # tune.grid_search(list(AGENT_CLASSES.values())),  #  agentcls,
                   'lr': lr,  # learning rate seems to be best in [2e-3, 4e-3], old [1e-4, 1e-1]
                   'num_hidden_layers': 1,  # tune.grid_search([1, 2]),
@@ -511,74 +505,76 @@ def select_best_model(env_config,
 
 
 def tune_best_model(db_path, env_config, experiment_name, analysis, with_pbt, max_train_steps=1e6):
-  # todo: careful there are still bugs here
-  # load config from analysis_obj
-  best_trial = analysis.get_best_trial("acc", "max")
-  config = best_trial.config
-  print(analysis.best_checkpoint)
-  print(analysis.best_logdir)
-  print(analysis.best_result)
-  print(analysis.best_result_df)
-  print(config)
-  # create search space for pbt
-  search_space = {
-    "lr": tune.uniform(1e-2, 1e-4),
-  }
-  # create pbt scheduler, see https://docs.ray.io/en/master/tune/api_docs/schedulers.html
-  pbt = PopulationBasedTraining(
-    time_attr="training_iteration",
-    # metric="acc",
-    # mode="max",
-    perturbation_interval=500,  # every 10 `time_attr` units
-    # (training_iterations in this case)
-    hyperparam_mutations=search_space)
-  # run pbt with final checkpoint dir
-  return run_train_eval_with_ray(name=experiment_name,
-                                 env_config=env_config,
-                                 db_path=db_path,
-                                 scheduler=pbt,
-                                 search_space=config,
-                                 metric='acc',  # handled by scheduler, mutually exclusive
-                                 mode='max',  # handled by scheduler, mutually exclusive
-                                 log_interval=LOG_INTERVAL,
-                                 eval_interval=EVAL_INTERVAL,
-                                 num_eval_states=NUM_EVAL_STATES,
-                                 num_samples=NUM_SAMPLES,
-                                 max_train_steps=max_train_steps
-                                 )
+  pass
+  # # todo: careful there are still bugs here
+  # # load config from analysis_obj
+  # best_trial = analysis.get_best_trial("acc", "max")
+  # config = best_trial.config
+  # print(analysis.best_checkpoint)
+  # print(analysis.best_logdir)
+  # print(analysis.best_result)
+  # print(analysis.best_result_df)
+  # print(config)
+  # # create search space for pbt
+  # search_space = {
+  #   "lr": tune.uniform(1e-2, 1e-4),
+  # }
+  # # create pbt scheduler, see https://docs.ray.io/en/master/tune/api_docs/schedulers.html
+  # pbt = PopulationBasedTraining(
+  #   time_attr="training_iteration",
+  #   # metric="acc",
+  #   # mode="max",
+  #   perturbation_interval=500,  # every 10 `time_attr` units
+  #   # (training_iterations in this case)
+  #   hyperparam_mutations=search_space)
+  # # run pbt with final checkpoint dir
+  # return run_train_eval_with_ray(name=experiment_name,
+  #                                env_config=env_config,
+  #                                db_path=db_path,
+  #                                scheduler=pbt,
+  #                                search_space=config,
+  #                                metric='acc',  # handled by scheduler, mutually exclusive
+  #                                mode='max',  # handled by scheduler, mutually exclusive
+  #                                log_interval=LOG_INTERVAL,
+  #                                eval_interval=EVAL_INTERVAL,
+  #                                num_eval_states=NUM_EVAL_STATES,
+  #                                num_samples=NUM_SAMPLES,
+  #                                max_train_steps=max_train_steps
+  #                                )
 
 
 def train_best_model(name, analysis, train_steps, from_db_path):
-  # todo load train_eval fn with checkpoint_dir=best_trial.checkpoint_dir and continue training
-  best_trial = analysis.get_best_trial('acc', 'max')
-  checkpoint_dir = best_trial.checkpoint.value
-  print(f'starting trainign in {checkpoint_dir}')
-  config = best_trial.config
-  # train_eval(config=config, checkpoint_dir=checkpoint_dir,use_ray=False, max_train_steps=train_steps, from_db_path=from_db_path, num_eval_states=NUM_EVAL_STATES)
-  train_fn = partial(train_eval, max_train_steps=train_steps, from_db_path=from_db_path,
-                     num_eval_states=NUM_EVAL_STATES)
-
-  def _trial_dirname_creator(trial):
-    return f'Manual_training_lr={trial.config["lr"]}' + f'_layer_size={trial.config["layer_size"]}'
-
-  def _trial_name_creator(trial):
-    return 'only_trial_' + str(trial.config['agent'])
-
-  tune.run(train_fn,
-           metric='acc',
-           mode='max',
-           config=config,
-           name=name,
-           num_samples=1,
-           keep_checkpoints_num=1,
-           verbose=VERBOSE,
-           trial_dirname_creator=_trial_dirname_creator,
-           trial_name_creator=None,
-           # stopipp=ray.tune.EarlyStopping(metric='acc', top=5, patience=1, mode='max'),
-           scheduler=None,
-           progress_reporter=CLIReporter(metric_columns=["loss", "acc", "training_iteration"]),
-           # trial_dirname_creator=trial_dirname_creator_fn
-           )
+  pass
+  # # todo load train_eval fn with checkpoint_dir=best_trial.checkpoint_dir and continue training
+  # best_trial = analysis.get_best_trial('acc', 'max')
+  # checkpoint_dir = best_trial.checkpoint.value
+  # print(f'starting trainign in {checkpoint_dir}')
+  # config = best_trial.config
+  # # train_eval(config=config, checkpoint_dir=checkpoint_dir,use_ray=False, max_train_steps=train_steps, from_db_path=from_db_path, num_eval_states=NUM_EVAL_STATES)
+  # train_fn = partial(train_eval, max_train_steps=train_steps, from_db_path=from_db_path,
+  #                    num_eval_states=NUM_EVAL_STATES)
+  #
+  # def _trial_dirname_creator(trial):
+  #   return f'Manual_training_lr={trial.config["lr"]}' + f'_layer_size={trial.config["layer_size"]}'
+  #
+  # def _trial_name_creator(trial):
+  #   return 'only_trial_' + str(trial.config['agent'])
+  #
+  # tune.run(train_fn,
+  #          metric='acc',
+  #          mode='max',
+  #          config=config,
+  #          name=name,
+  #          num_samples=1,
+  #          keep_checkpoints_num=1,
+  #          verbose=VERBOSE,
+  #          trial_dirname_creator=_trial_dirname_creator,
+  #          trial_name_creator=None,
+  #          # stopipp=ray.tune.EarlyStopping(metric='acc', top=5, patience=1, mode='max'),
+  #          scheduler=None,
+  #          progress_reporter=CLIReporter(metric_columns=["loss", "acc", "training_iteration"]),
+  #          # trial_dirname_creator=trial_dirname_creator_fn
+  #          )
 
 
 def maybe_create_and_populate_database(hanabi_config):
