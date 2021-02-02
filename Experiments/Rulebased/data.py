@@ -26,11 +26,13 @@ class StateActionWriter:
 
     def __init__(self,
                  agent_classes: Dict[str, ra.RulebasedAgent],
+                 hanabi_game_config: Dict,
                  num_players: int,
                  # max_size_per_iter: int = 100,
-                 target_agent: Optional[str] = None):
-        self._data_collector = StateActionCollector(agent_classes, num_players, target_agent)
-
+                 target_agent: Optional[str] = None,
+                 ):
+        self._data_collector = StateActionCollector(hanabi_game_config, agent_classes, num_players, target_agent)
+        
     def collect_and_write_to_database(self, path_to_db, num_rows_to_add, keep_state_dict=True):
         # if path_to_db does not exists, create a file, otherwise append to database
         #        x          x       x      x       x        x
@@ -41,34 +43,8 @@ class StateActionWriter:
         while collected < num_rows_to_add:
             self._data_collector.collect(num_states_to_collect=1000,  # only thousand at once because its slow otherwise
                                          insert_to_database_at=path_to_db,
-                                         keep_obs_dict=keep_state_dict)
+                                         keep_obs_dict=keep_state_dict
+                                         )
             collected += 1000
             print(f'Collected {collected} states and wrote them to {path_to_db}')
 
-
-def collect_and_write_to_database(path_to_db, num_rows_to_add, keep_state_dict=False):
-    writer = StateActionWriter(AGENT_CLASSES, 3)
-    writer.collect_and_write_to_database(path_to_db, num_rows_to_add, keep_state_dict=keep_state_dict)
-
-
-def collect(num_states_to_collect):
-    collector = StateActionCollector(AGENT_CLASSES, 3)
-    states = collector.collect(drop_actions=False,
-                               num_states_to_collect=num_states_to_collect,
-                               target_agent=None,
-                               keep_obs_dict=True,
-                               keep_agent=False)
-    return states
-# collect_and_write_to_database(path_to_db='./database_test.db', num_rows_to_add=int(5e5), keep_state_dict=True)
-# # too slow, seconds taken increase linearly with number of states
-# start = time()
-# print(collect(1e2), f'took {time() - start} seconds')
-# start = time()
-# print(collect(1e3), f'took {time() - start} seconds')
-# start = time()
-# print(collect(1e4), f'took {time() - start} seconds')
-#start = time()
-#print(collect(1e2), f'took {time() - start} seconds')
-# print(f'took {time() - start} seconds')
-# print(type(data))
-# print(type(data['obs_dicts']))

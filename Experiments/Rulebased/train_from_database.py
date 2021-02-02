@@ -60,6 +60,36 @@ from_db_path_notebook = '/home/cawa/Documents/github.com/hellovertex/hanabi-ad-h
 from_db_path_desktop = '/home/hellovertex/Documents/github.com/hellovertex/hanabi-ad-hoc-learning/Experiments/Rulebased/database_test.db'
 FROM_DB_PATH = from_db_path_desktop
 
+
+def stringify_env_config(cfg):
+  c = str(cfg['colors'])
+  r = str(cfg['ranks'])
+  p = str(cfg['players'])
+  h = str(cfg['hand_size'])
+  i = str(cfg['max_information_tokens'])
+  l = str(cfg['max_life_tokens'])
+  o = str(cfg['observation_type'])
+  return f'p{p}_h{h}_c{c}_r{r}_i{i}_l{l}_o{o}'
+
+
+
+env_config = {
+            "colors":
+                5,
+            "ranks":
+                5,
+            "players":
+                3,
+            "hand_size":
+                5,
+            "max_information_tokens":
+                8,
+            "max_life_tokens":
+                3,
+            "observation_type":
+                1  # pyhanabi.AgentObservationType.CARD_KNOWLEDGE.value
+        } 
+
 # todo load from config
 hand_size = 5
 num_players = 3
@@ -70,6 +100,7 @@ COLORS_INV = ['B', 'W', 'G', 'Y', 'R']
 RANKS_INV = [4, 3, 2, 1, 0]
 color_offset = (2 * hand_size)
 rank_offset = color_offset + (num_players - 1) * num_colors
+
 
 
 def to_int(action_dict):
@@ -139,7 +170,7 @@ class PoolOfStatesFromDatabase:
     try:
       query_cols = [col + ', ' for col in self.QUERY_VARS]
       query_cols[-1] = query_cols[-1][:-2]  # remove last ', '
-      query_string = ['SELECT '] + query_cols + [' from ' + table] + [f' WHERE _ROWID_ IN (SELECT _ROWID_ FROM {table} ORDER BY RANDOM({seed})'] + [f' LIMIT {self._size})']
+      query_string = ['SELECT '] + query_cols + [' from ' + table] + [f' WHERE _ROWID_ IN (SELECT _ROWID_ FROM {table} ORDER BY RANDOM()'] + [f' LIMIT {self._size})']
       return "".join(query_string)
     except Exception as e:
       print(e)
@@ -149,7 +180,8 @@ class PoolOfStatesFromDatabase:
   def get_eagerly(self, batch_length=1, pyhanabi_as_bytes=True, random_seed=None):
     dataset = []
     cursor = self._connection.cursor()
-    query_string = self._build_query(str(random_seed) if random_seed else '')
+    # query_string = self._build_query(str(random_seed) if random_seed else '')
+    query_string = self._build_query(seed=str(random_seed) if random_seed else '')
     # query database with all the information necessary to build the observation_dictionary
     cursor.execute(query_string)
     # parse query
@@ -358,7 +390,7 @@ def train_eval(config,
     return MapStylePoolOfStatesFromDatabase(from_db_path=FROM_DB_PATH, size=int(2e3)).get_eagerly(
            pyhanabi_as_bytes=True, batch_length=batch_size)
   trainloader = _train_loader()
-  testloader = StateActionCollector(AGENT_CLASSES, 3)
+  testloader = StateActionCollector(env_config, AGENT_CLASSES, 3)
 
   net = model.get_model(observation_size=956,  # todo derive this from game_config
                         num_actions=30,

@@ -2,13 +2,30 @@ from data import StateActionWriter
 from cl2 import AGENT_CLASSES
 import train_from_database as util
 
-path_to_db = './database_test.db'
+env_config = {
+            "colors":
+                5,
+            "ranks":
+                5,
+            "players":
+                4,
+            "hand_size":
+                4,
+            "max_information_tokens":
+                8,
+            "max_life_tokens":
+                3,
+            "observation_type":
+                1  # pyhanabi.AgentObservationType.CARD_KNOWLEDGE.value
+        } 
+# can remove stringify, if states from mixed game configs wanted in one database
+path_to_db = f'./database_{util.stringify_env_config(env_config)}.db'  
 num_rows_to_add = int(1e3)
 
 
 if __name__ == '__main__':
     """ Create and Fill database """
-    writer = StateActionWriter(AGENT_CLASSES, 3)
+    writer = StateActionWriter(AGENT_CLASSES, env_config, 3)
     writer.collect_and_write_to_database(path_to_db, num_rows_to_add)
 
     """ Get torch dataset with 'size' many elements, randomly drawn from database  """

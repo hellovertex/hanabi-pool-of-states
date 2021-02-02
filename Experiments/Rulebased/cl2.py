@@ -63,9 +63,10 @@ def to_int(action_dict):
 
 
 class Runner:
-  def __init__(self, num_players):
+  def __init__(self, hanabi_game_config: Dict, num_players):
+    # self.hanabi_game_config = hanabi_game_config
     self.num_players = num_players
-    self.environment = rl_env.make('Hanabi-Full', self.num_players)
+    self.environment = rl_env.HanabiEnv(hanabi_game_config)
     self.agent_config = {'players': self.num_players}  # same for all ra.RulebasedAgent instances
 
   @staticmethod
@@ -189,6 +190,7 @@ class Runner:
 
 class StateActionCollector:
   def __init__(self,
+               hanabi_game_config,
                agent_classes: Dict[str, ra.RulebasedAgent],
                num_players: int,
                target_agent: Optional[str] = None
@@ -196,7 +198,7 @@ class StateActionCollector:
     self.agent_classes = agent_classes  # pool of agents used to play
     self.num_players = num_players
     self._target_agent = target_agent
-    self.runner = Runner(self.num_players)
+    self.runner = Runner(hanabi_game_config, self.num_players)
     self.initialized_agents = {}  # Dict[str, namedtuple]
     self._replay_dict = {}
 
