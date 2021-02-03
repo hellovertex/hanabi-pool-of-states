@@ -1,49 +1,81 @@
-import tensorflow as tf
-import numpy as np
-import time
-N_AGENTS = 2
+import traceback
 
-def load_default_model():
-    model = tf.keras.models.Sequential([
-        tf.keras.layers.Dense(512, activation='relu'),
-        tf.keras.layers.Dropout(.2),
-        tf.keras.layers.Dense(512, activation='relu'),
-        tf.keras.layers.Dropout(.2),
-        tf.keras.layers.Dense(2)
-    ])
-
-    loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
-    model.compile(optimizer='adam',
-                  loss=loss_fn,
-                  metrics=['accuracy'])
-
-    return model
+COLORS_INV = ['B', 'W', 'G', 'Y', 'R']
+RANKS_INV = [4, 3, 2, 1, 0]
+C_COUNT = [3, 2, 2, 2, 1]
 
 
-def train_data_from_replay_dict(replay_dictionary):
-    X = list()
-    Y = list()
-
-    ts = time.time()
-    for label, (agent_name, replays) in enumerate(replay_dictionary.items()):
-        states = replays['states']
-        actions = replays['actions']
-        # zip here and append to X
-        y = [0 for _ in range(N_AGENTS)]
-        y[label] = 1
-        for i_game in range(len(states)):
-            for i_turn in range(len(states[i_game])):
-                x = states[i_game][i_turn] + actions[i_game][i_turn]
-                X.append(x)
-                Y.append(y)
-
-    # print(len(X))
-    # print(len(Y))
-    # print(sum(Y))
-    print(f'took {time.time() - ts} seconds')
+def stringify_env_config(cfg):
+  c = str(cfg['colors'])
+  r = str(cfg['ranks'])
+  p = str(cfg['players'])
+  h = str(cfg['hand_size'])
+  i = str(cfg['max_information_tokens'])
+  l = str(cfg['max_life_tokens'])
+  o = str(cfg['observation_type'])
+  return f'p{p}_h{h}_c{c}_r{r}_i{i}_l{l}_o{o}'
 
 
-    return X, Y
+
+
+
+def get_observation_length(cfg):
+  num_colors = cfg['colors']
+  num_ranks = cfg['ranks']
+  num_players = cfg['players']
+  max_deck_size = 0
+  for r in range(num_ranks):
+    max_deck_size += C_COUNT[r] * num_colors
+  max_info_tokens = cfg['max_information_tokens']
+  max_life_tokens = cfg['max_life_tokens']
+  hand_size = 4 if num_players in [4, 5] else 5
+
+  bits_per_card = num_colors * num_ranks
+
+  hands_bit_length = (num_players - 1) * hand_size * bits_per_card + num_players
+
+  board_bit_length = max_deck_size - num_players * \
+                     hand_size + num_colors * num_ranks \
+                     + max_info_tokens + max_life_tokens
+
+  discard_pile_bit_length = max_deck_size
+
+  last_action_bit_length = num_players + 4 + num_players + \
+                           num_colors + num_ranks \
+                           + hand_size + hand_size + bits_per_card + 2
+
+  card_knowledge_bit_length = num_players * hand_size * \
+                              (bits_per_card + num_colors + num_ranks)
+
+  return hands_bit_length + board_bit_length + discard_pile_bit_length \
+         + last_action_bit_length + card_knowledge_bit_length
+
+
+def get_max_actions(cfg):
+  hand_size = 4 if cfg['players'] in [4, 5] else 5
+  return 2 * hand_size + (cfg['colors'] + cfg['ranks']) * cfg['players']
+
+
+
+def to_int(cfg, action_dict):
+  try:
+    action_type = action_dict['action_type']
+  except Exception:
+    traceback.print_exc()
+    print(f'got action = {action_dict}')
+    exit(1)
+  if action_type == 'DISCARD':
+    return action_dict['card_index']
+  elif action_type == 'PLAY':
+    return cfg['hand_size'] + action_dict['card_index']
+  elif action_type == 'REVEAL_COLOR':
+    color_offset = (2 * cfg['hand_size'])
+    return color_offset + action_dict['target_offset'] * cfg['colors'] - (COLORS_INV.index(action_dict['color'])) - 1
+  elif action_type == 'REVEAL_RANK':
+    rank_offset = 2 * cfg['hand_size'] + (cfg['players'] - 1) * cfg['colors']
+    return rank_offset + action_dict['target_offset'] * cfg['ranks'] - (RANKS_INV[action_dict['rank']]) - 1
+  else:
+    raise ValueError(f'action_dict was {action_dict}')
 
 
 # todo 1: visualize pairwise training and test accuracies
