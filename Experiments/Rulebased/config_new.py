@@ -19,9 +19,9 @@ hanabi_config = {
       1  # pyhanabi.AgentObservationType.CARD_KNOWLEDGE.value
   }
 
-DEBUG = True
+DEBUG = False
 database_size = int(5e3) if DEBUG else int(5e5)
-pool_size = int(100) if DEBUG else int(2e3)
+pool_sizes = [int(100)] if DEBUG else [2000, 3000, 4000, 5000, 10000]
 
 ray_config = {'lr': tune.loguniform(1e-4, 5e-3),  # learning rate seems to be best in [2e-3, 4e-3], old [1e-4, 1e-1]
                 'num_hidden_layers': 1,  # tune.grid_search([1, 2]),

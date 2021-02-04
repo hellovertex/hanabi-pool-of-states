@@ -2,13 +2,14 @@ import os
 import pickle
 import traceback
 
+import ray
 from ray import tune
 from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
 from functools import partial
 import torch
 from torch import optim
-from Experiments.Rulebased.config_new import hanabi_config, ray_config, database_size, pool_size, GRACE_PERIOD, \
+from Experiments.Rulebased.config_new import hanabi_config, ray_config, database_size, pool_sizes, GRACE_PERIOD, \
   RAY_NUM_SAMPLES, MAX_T, KEEP_CHECKPOINTS_NUM, VERBOSE, log_interval, eval_interval, n_states_for_evaluation
 from utils import stringify_env_config, get_observation_length, get_max_actions, to_int
 from data import maybe_create_and_populate_database
@@ -74,11 +75,11 @@ def train_eval(config,  # used by ray
                         layer_size=layer_size)
 
   # Create Pool of States of first n rows from database for training
-  trainloader_fn = partial(PoolOfStates(from_db_path).get_eagerly, n_rows=pool_size,
-                           pyhanabi_as_bytes=True,
-                           batch_size=batch_size,
-                           pick_at_random=False,  # random_seed=42
-                           )
+  # trainloader_fn = partial(PoolOfStates(from_db_path).get_eagerly, n_rows=pool_size,
+  #                          pyhanabi_as_bytes=True,
+  #                          batch_size=batch_size,
+  #                          pick_at_random=False,  # random_seed=42
+  #                          )
   testloader = StateActionCollector(hanabi_game_config=env_config,
                                     agent_classes=AGENT_CLASSES)
 
@@ -96,7 +97,11 @@ def train_eval(config,  # used by ray
   eval_it = 0
 
   while True:
-    trainloader = trainloader_fn()  # train sampling first pool_size states from database
+    trainloader = PoolOfStates(from_db_path).get_eagerly(n_rows=pool_size,
+                           pyhanabi_as_bytes=True,
+                           batch_size=batch_size,
+                           pick_at_random=False,  # random_seed=42
+                           )
     try:
       for batch_raw in trainloader:
         batch = parse_batch(batch_raw, pyhanabi_as_bytes)
@@ -109,8 +114,8 @@ def train_eval(config,  # used by ray
         loss.backward()
         optimizer.step()
 
-        if it % log_interval == 0:
-          print(f'Iteration {it}...')
+        # if it % log_interval == 0:
+        #   print(f'Iteration {it}...')
         if it % eval_interval == 0:
           loss, acc = eval_fn(env_config, net=net, eval_loader=testloader, criterion=criterion,
                               target_agent=agent,
@@ -145,7 +150,6 @@ def select_best_model(env_config,
   ckpt_dir = f'./{agentname}_{stringify_env_config(hanabi_config)}/'
   # configure via config_new.py
   train_fn = tune.with_parameters(train_eval,
-                                  checkpoint_dir=ckpt_dir,
                                   agentcls=agentcls,
                                   pool_size=pool_size,
                                   from_db_path=db_path,
@@ -155,16 +159,20 @@ def select_best_model(env_config,
                                   num_eval_states=n_states_for_evaluation,
                                   pyhanabi_as_bytes=True)
   scheduler = ASHAScheduler(time_attr='training_iteration', grace_period=GRACE_PERIOD, max_t=MAX_T)
+  def trial_name_fn(trial: ray.tune.trial.Trial):
+    return f'{trial.config["num_hidden_layers"]}_layers_{trial.config["layer_size"]}_size{trial.config["lr"]}_lr'
   analysis = tune.run(train_fn,
                       metric='acc',
                       mode='max',
                       config=ray_config,
-                      name=agentname,
+                      name=agentname + f'_{stringify_env_config(hanabi_config)}',
                       num_samples=RAY_NUM_SAMPLES,
                       keep_checkpoints_num=KEEP_CHECKPOINTS_NUM,
                       verbose=VERBOSE,
                       scheduler=scheduler,
+                      trial_name_creator=trial_name_fn,
                       progress_reporter=CLIReporter(metric_columns=["loss", "acc", "training_iteration"]),
+                      local_dir=f'{os.getcwd()}/ray_results/{pool_size}'
                       )
   best_trial = analysis.get_best_trial("acc", "max")
   print(best_trial.config)
@@ -173,21 +181,23 @@ def select_best_model(env_config,
 
 
 def main():
-  db_path = f'./database_{stringify_env_config(hanabi_config)}.db'
+  db_path = f'{os.getcwd()}/database_{stringify_env_config(hanabi_config)}.db'
+  print(f'db_path={db_path}')
   # check if database exists for corresponding config, otherwise create and insert 500k states [takes a long time]
   maybe_create_and_populate_database(db_path,
                                      hanabi_config,
                                      database_size)
 
   # train models for each agent on pool_size states from database and evaluate collecting online games
-  assert database_size > pool_size, 'not enough states in database for training with pool_size'
-  for agentname, agentcls in AGENT_CLASSES.items():
-    best_model_analysis = select_best_model(env_config=hanabi_config,
-                                            ray_config=ray_config,
-                                            db_path=db_path,
-                                            pool_size=pool_size,
-                                            agentname=agentname,
-                                            agentcls=agentcls)
+  for pool_size in pool_sizes:
+    assert database_size > pool_size, 'not enough states in database for training with pool_size'
+    for agentname, agentcls in AGENT_CLASSES.items():
+      best_model_analysis = select_best_model(env_config=hanabi_config,
+                                              ray_config=ray_config,
+                                              db_path=db_path,
+                                              pool_size=pool_size,
+                                              agentname=agentname,
+                                              agentcls=agentcls)
 
 
 if __name__ == '__main__':
