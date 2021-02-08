@@ -374,7 +374,9 @@ class StateActionCollector:
       num_states_collected += num_turns_played
 
     if not insert_to_database_at:
-      return self._formatted_eager_return_values(eager_return_values=eager_return_values,
+      data = self._formatted_eager_return_values(eager_return_values=eager_return_values,
                                                  max_states=num_states_to_collect,
                                                  keep_obs_dict=keep_obs_dict,
                                                  drop_actions=drop_actions)
+      self._replay_dict = {}
+      return data

@@ -1,5 +1,6 @@
 import os
 import pickle
+import pandas as pd
 import traceback
 from datetime import datetime
 import ray
@@ -16,6 +17,8 @@ from data import maybe_create_and_populate_database
 from datasets import PoolOfStates
 from cl2 import AGENT_CLASSES, StateActionCollector
 import model
+from ray.tune.integration.torch import (DistributedTrainableCreator,
+                                        distributed_checkpoint_dir)
 
 
 def eval_fn(env_config, net, eval_loader, criterion, target_agent, num_states):
@@ -37,8 +40,10 @@ def eval_fn(env_config, net, eval_loader, criterion, target_agent, num_states):
       running_loss += criterion(prediction, action)
       # accuracy
       correct += torch.sum(torch.max(prediction, 1)[1] == action)
-
-    return 100 * running_loss / num_states, 100 * correct.item() / num_states
+    loss = 100 * running_loss / num_states
+    acc = 100 * correct.item() / num_states
+    del observations_pickled
+    return loss, acc
 
 
 def parse_batch(b, pyhanabi_as_bytes):
@@ -98,10 +103,10 @@ def train_eval(config,  # used by ray
   eval_it = 0
   # trainloader = data
   trainloader = PoolOfStates(from_db_path).get_eagerly(n_rows=pool_size,
-                                                  pyhanabi_as_bytes=True,
-                                                  batch_size=ray_config['batch_size'],
-                                                  pick_at_random=False,  # random_seed=42
-                                                  )
+                                                       pyhanabi_as_bytes=True,
+                                                       batch_size=ray_config['batch_size'],
+                                                       pick_at_random=False,  # random_seed=42
+                                                       )
   while True:
     try:
       for batch_raw in trainloader:
@@ -140,6 +145,7 @@ def train_eval(config,  # used by ray
         print(e)
         print(traceback.print_exc())
         raise e
+  del trainloader
 
 
 def select_best_model(env_config,
@@ -150,23 +156,24 @@ def select_best_model(env_config,
                       agentcls, ):
   if not isinstance(ray_config['batch_size'], int):
     raise NotImplementedError
-  trainloader = PoolOfStates(db_path).get_eagerly(n_rows=pool_size,
-                                                         pyhanabi_as_bytes=True,
-                                                         batch_size=ray_config['batch_size'],
-                                                         pick_at_random=False,  # random_seed=42
-                                                         )
+  # trainloader = PoolOfStates(db_path).get_eagerly(n_rows=pool_size,
+  #                                                        pyhanabi_as_bytes=True,
+  #                                                        batch_size=ray_config['batch_size'],
+  #                                                        pick_at_random=False,  # random_seed=42
+  #                                                        )
   # configure via config_new.py
-  train_fn = tune.with_parameters(train_eval,
-                               #data=trainloader,
-                                  agentcls=agentcls,
-                                  pool_size=pool_size,
-                                  from_db_path=db_path,
-                                  env_config=env_config,
-                                  log_interval=log_interval,
-                                  eval_interval=eval_interval,
-                                  num_eval_states=n_states_for_evaluation,
-                                  pyhanabi_as_bytes=True)
+  train_fn = partial(train_eval,
+                     # data=trainloader,
+                     agentcls=agentcls,
+                     pool_size=pool_size,
+                     from_db_path=db_path,
+                     env_config=env_config,
+                     log_interval=log_interval,
+                     eval_interval=eval_interval,
+                     num_eval_states=n_states_for_evaluation,
+                     pyhanabi_as_bytes=True)
 
+  # train_fn = DistributedTrainableCreator(train, num_workers=1, num_workers_per_host=1)
   scheduler = ASHAScheduler(time_attr='training_iteration', grace_period=GRACE_PERIOD, max_t=MAX_T)
 
   def trial_name_fn(trial: ray.tune.trial.Trial):
@@ -185,7 +192,7 @@ def select_best_model(env_config,
                       trial_name_creator=trial_name_fn,
                       progress_reporter=CLIReporter(metric_columns=["loss", "acc", "training_iteration"]),
                       local_dir=f'{os.getcwd()}/ray_results/{pool_size}_{datetime.now().strftime("%m_%d_%y")}',
-                      # resources_per_trial={"cpu": 0.5}
+                      resources_per_trial={"cpu": 0.5}
                       )
   best_trial = analysis.get_best_trial("acc", "max")
   print(best_trial.config)
@@ -202,8 +209,12 @@ def main():
                                      database_size)
 
   # train models for each agent on pool_size states from database and evaluate collecting online games
+  accs= []
+  names = [agentname for agentname, _ in AGENT_CLASSES.items()]
+  cfgs = []
   for pool_size in pool_sizes:
     assert database_size > pool_size, 'not enough states in database for training with pool_size'
+    # for layer_size in ray_config['layer_sizes']:
     for agentname, agentcls in AGENT_CLASSES.items():
       best_model_analysis = select_best_model(env_config=hanabi_config,
                                               ray_config=ray_config,
@@ -211,8 +222,11 @@ def main():
                                               pool_size=pool_size,
                                               agentname=agentname,
                                               agentcls=agentcls)
-      # todo evaluate results
 
+      best_trial = best_model_analysis.get_best_trial("acc", "max")
+      accs.append(best_trial.best_result)
+      cfgs.append(best_trial.config)
+  pd.DataFrame([pool_sizes, names, accs, cfgs]).to_csv('results')
 
 if __name__ == '__main__':
   # Goal is to find a reasonable lower bound on pool_size

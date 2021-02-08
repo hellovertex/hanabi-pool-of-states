@@ -30,7 +30,7 @@ ray_config = {'lr': tune.loguniform(1e-6, 1e-1),  # learning rate seems to be be
                 # 'layer_size': tune.grid_search([64, 96, 128, 196, 256, 376, 448, 512]),
                 # 'layer_size': tune.grid_search([64, 96, 128, 196, 256]),
                 # 'layer_size': tune.grid_search([64, 128, 256]),
-                'layer_size': tune.grid_search([64, 128]),
+                'layer_size': 64, # tune.grid_search([64, 128]),
                 'batch_size': 4,  # tune.choice([4, 8, 16, 32]),
                 # 'num_workers' : 4,
                   }
