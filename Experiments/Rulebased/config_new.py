@@ -22,14 +22,17 @@ hanabi_config = {
 DEBUG = False
 database_size = int(5e3) if DEBUG else int(5e5)
 pool_sizes = [int(100)] if DEBUG else [2000, 3000, 4000, 5000, 10000]
+# pool_sizes = [int(100)] if DEBUG else [10000]
 
-ray_config = {'lr': tune.loguniform(1e-4, 5e-3),  # learning rate seems to be best in [2e-3, 4e-3], old [1e-4, 1e-1]
+#ray_config = {'lr': tune.loguniform(1e-4, 5e-3),  # learning rate seems to be best in [2e-3, 4e-3], old [1e-4, 1e-1]
+ray_config = {'lr': tune.loguniform(1e-6, 1e-1),  # learning rate seems to be best in [2e-3, 4e-3], old [1e-4, 1e-1]
                 'num_hidden_layers': 1,  # tune.grid_search([1, 2]),
                 # 'layer_size': tune.grid_search([64, 96, 128, 196, 256, 376, 448, 512]),
                 # 'layer_size': tune.grid_search([64, 96, 128, 196, 256]),
                 # 'layer_size': tune.grid_search([64, 128, 256]),
-                'layer_size': 64,
+                'layer_size': tune.grid_search([64, 128]),
                 'batch_size': 4,  # tune.choice([4, 8, 16, 32]),
+                # 'num_workers' : 4,
                   }
 
 log_interval = 10 if DEBUG else 100

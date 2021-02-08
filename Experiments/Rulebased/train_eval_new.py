@@ -1,7 +1,7 @@
 import os
 import pickle
 import traceback
-
+from datetime import datetime
 import ray
 from ray import tune
 from ray.tune import CLIReporter
@@ -60,7 +60,8 @@ def train_eval(config,  # used by ray
                eval_interval,
                num_eval_states,
                pyhanabi_as_bytes=True,
-               checkpoint_dir=None,
+               checkpoint_dir=None,  # used by ray
+               data=None,  # used by ray
                data_dir=None, ):
   lr = config['lr']
   num_hidden_layers = config['num_hidden_layers']
@@ -95,13 +96,13 @@ def train_eval(config,  # used by ray
   epoch = 1
   moving_acc = 0
   eval_it = 0
-
+  # trainloader = data
+  trainloader = PoolOfStates(from_db_path).get_eagerly(n_rows=pool_size,
+                                                  pyhanabi_as_bytes=True,
+                                                  batch_size=ray_config['batch_size'],
+                                                  pick_at_random=False,  # random_seed=42
+                                                  )
   while True:
-    trainloader = PoolOfStates(from_db_path).get_eagerly(n_rows=pool_size,
-                           pyhanabi_as_bytes=True,
-                           batch_size=batch_size,
-                           pick_at_random=False,  # random_seed=42
-                           )
     try:
       for batch_raw in trainloader:
         batch = parse_batch(batch_raw, pyhanabi_as_bytes)
@@ -109,21 +110,21 @@ def train_eval(config,  # used by ray
         vectorized = torch.FloatTensor([obs['vectorized'] for obs in batch])
         optimizer.zero_grad()
         outputs = net(vectorized).reshape(batch_size, -1)
-        loss = criterion(outputs, actions)
+        train_loss = criterion(outputs, actions)
 
-        loss.backward()
+        train_loss.backward()
         optimizer.step()
 
         # if it % log_interval == 0:
         #   print(f'Iteration {it}...')
         if it % eval_interval == 0:
-          loss, acc = eval_fn(env_config, net=net, eval_loader=testloader, criterion=criterion,
-                              target_agent=agent,
-                              num_states=num_eval_states)
+          eval_loss, acc = eval_fn(env_config, net=net, eval_loader=testloader, criterion=criterion,
+                                   target_agent=agent,
+                                   num_states=num_eval_states)
           moving_acc += acc
           eval_it += 1
           # tune.report(training_iteration=it, loss=loss, acc=moving_acc / eval_it)
-          tune.report(training_iteration=it, loss=loss, acc=acc)
+          tune.report(training_iteration=it, loss=eval_loss, acc=acc)
           # checkpoint frequency may be handled by ray if we remove checkpointing here
           with tune.checkpoint_dir(step=it) as checkpoint_dir:
             path = os.path.join(checkpoint_dir, 'checkpoint')
@@ -147,9 +148,16 @@ def select_best_model(env_config,
                       pool_size,
                       agentname,
                       agentcls, ):
-  ckpt_dir = f'./{agentname}_{stringify_env_config(hanabi_config)}/'
+  if not isinstance(ray_config['batch_size'], int):
+    raise NotImplementedError
+  trainloader = PoolOfStates(db_path).get_eagerly(n_rows=pool_size,
+                                                         pyhanabi_as_bytes=True,
+                                                         batch_size=ray_config['batch_size'],
+                                                         pick_at_random=False,  # random_seed=42
+                                                         )
   # configure via config_new.py
   train_fn = tune.with_parameters(train_eval,
+                               #data=trainloader,
                                   agentcls=agentcls,
                                   pool_size=pool_size,
                                   from_db_path=db_path,
@@ -158,9 +166,13 @@ def select_best_model(env_config,
                                   eval_interval=eval_interval,
                                   num_eval_states=n_states_for_evaluation,
                                   pyhanabi_as_bytes=True)
+
   scheduler = ASHAScheduler(time_attr='training_iteration', grace_period=GRACE_PERIOD, max_t=MAX_T)
+
   def trial_name_fn(trial: ray.tune.trial.Trial):
-    return f'{trial.config["num_hidden_layers"]}_layers_{trial.config["layer_size"]}_size{trial.config["lr"]}_lr'
+    # todo: formatting of lr
+    return f'layers={trial.config["num_hidden_layers"]}_size={trial.config["layer_size"]}_lr={trial.config["lr"]}'
+
   analysis = tune.run(train_fn,
                       metric='acc',
                       mode='max',
@@ -172,7 +184,8 @@ def select_best_model(env_config,
                       scheduler=scheduler,
                       trial_name_creator=trial_name_fn,
                       progress_reporter=CLIReporter(metric_columns=["loss", "acc", "training_iteration"]),
-                      local_dir=f'{os.getcwd()}/ray_results/{pool_size}'
+                      local_dir=f'{os.getcwd()}/ray_results/{pool_size}_{datetime.now().strftime("%m_%d_%y")}',
+                      # resources_per_trial={"cpu": 0.5}
                       )
   best_trial = analysis.get_best_trial("acc", "max")
   print(best_trial.config)
@@ -198,9 +211,9 @@ def main():
                                               pool_size=pool_size,
                                               agentname=agentname,
                                               agentcls=agentcls)
+      # todo evaluate results
 
 
 if __name__ == '__main__':
   # Goal is to find a reasonable lower bound on pool_size
-  # todo parameterize with pool size
   main()

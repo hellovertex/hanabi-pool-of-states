@@ -30,6 +30,7 @@ class Agent(NamedTuple):
 AGENT_CLASSES = {'InternalAgent': InternalAgent,
                  'OuterAgent': OuterAgent, 'IGGIAgent': IGGIAgent, 'FlawedAgent': FlawedAgent,
                  'PiersAgent': PiersAgent, 'VanDenBerghAgent': VanDenBerghAgent}
+# AGENT_CLASSES = {'PiersAgent': PiersAgent, 'VanDenBerghAgent': VanDenBerghAgent}
 
 COLORS_INV = ['B', 'W', 'G', 'Y', 'R']
 RANKS_INV = [4, 3, 2, 1, 0]
